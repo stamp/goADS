@@ -1,0 +1,30 @@
+<seelog type="asynctimer" asyncinterval="1000" minlevel="debug">
+    <outputs>
+        <filter levels="trace">
+            <console formatid="colored-trace"/>
+        </filter>
+        <filter levels="debug">
+            <console formatid="colored-debug"/>
+        </filter>
+        <filter levels="info">
+            <console formatid="colored-info"/>
+        </filter>
+        <filter levels="warn">
+            <console formatid="colored-warn"/>
+        </filter>
+        <filter levels="error">
+            <console formatid="colored-error"/>
+        </filter>
+        <filter levels="critical">
+            <console formatid="colored-critical"/>
+        </filter>
+    </outputs>
+    <formats>
+        <format id="colored-trace"  format="%EscM(40)%Level%EscM(49) - %File - %Msg%n%EscM(0)"/>
+        <format id="colored-debug"  format="%EscM(45)%Level%EscM(49) - %File - %Msg%n%EscM(0)"/>
+        <format id="colored-info"  format="%EscM(46)%Level%EscM(49) - %File - %Msg%n%EscM(0)"/>
+        <format id="colored-warn"  format="%EscM(43)%Level%EscM(49) - %File - %Msg%n%EscM(0)"/>
+        <format id="colored-error"  format="%EscM(41)%Level%EscM(49) - %File - %Msg%n%EscM(0)"/>
+        <format id="colored-critical"  format="%EscM(41)%Level%EscM(49) - %File - %Msg%n%EscM(0)"/>
+    </formats>
+</seelog>

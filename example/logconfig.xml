@@ -1,4 +1,4 @@
-<seelog type="asynctimer" asyncinterval="1000" minlevel="debug">
+<seelog type="sync" asyncinterval="1000" minlevel="debug">
     <outputs>
         <filter levels="trace">
             <console formatid="colored-trace"/>

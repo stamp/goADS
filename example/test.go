@@ -67,13 +67,17 @@ func main() {
     log.Warn("Count: ",len(symbols));
 
 	//pd,ok := symbols[".RECIPE"]
-	//pd,ok := symbols[".PD"]
-	pd,ok := symbols[".SYSTEMTASKINFOARR"]
+	pd,ok := symbols[".PD"]
+	//pd,ok := symbols[".SYSTEMTASKINFOARR"]
 	if ok {
-		pd.Read()
-		pd.Walk()
+		pd.AddDeviceNotification(func(symbol *goADS.ADSSymbolUploadSymbol) {
+			symbol.Walk()
+		})
 //		pd.DebugWalk()
 	}
+
+
+	select{}
 
     // Do some work/*{{{*/
     /*for i := 0; i < 100; i++ {
@@ -90,6 +94,7 @@ func main() {
 
     // Wait for all routines to finish/*{{{*/
     WaitGroup.Wait()
+	connection.Wait()
 
     log.Info("MAIN Done :)");/*}}}*/
 }

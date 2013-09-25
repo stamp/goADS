@@ -52,7 +52,7 @@ func (conn *Connection) encode(command uint16,pack []byte,invoke uint32) (header
     return
 }
 
-func (conn *Connection) decode(in []byte) (length uint32,invoke uint32,err error) {
+func (conn *Connection) decode(in []byte) (command uint16,length uint32,invoke uint32,err error) {
     logger.Trace("Starting decoding of AMS header\n\r",hex.Dump(in))
 
     if len(in) < 38 {
@@ -60,11 +60,12 @@ func (conn *Connection) decode(in []byte) (length uint32,invoke uint32,err error
         return
     }
 
+    command = binary.LittleEndian.Uint16(in[22:24])
     length = binary.LittleEndian.Uint32(in[26:30])
     error := binary.LittleEndian.Uint32(in[30:34])
     invoke = binary.LittleEndian.Uint32(in[34:38])
 
-    logger.Tracef("len: %d error: %d invoke: %d",length,error,invoke )
+    logger.Tracef("cmd: %d len: %d error: %d invoke: %d",command,length,error,invoke )
 
     if error > 0 {
         err = fmt.Errorf("Got ADS error code %d",error)

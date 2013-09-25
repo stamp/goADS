@@ -401,6 +401,20 @@ func (data *ADSSymbolUploadDataType) Walk(parent string) { /*{{{*/
 	}
 } /*}}}*/
 
+
+func (symbol *ADSSymbolUploadSymbol) AddDeviceNotification(callback func(*ADSSymbolUploadSymbol)) { /*{{{*/
+	log.Info("AddDeviceNotification (", symbol.Area, ":", symbol.Offset, "): ", symbol.Name)
+
+	s := symbol
+	c := callback
+
+	symbol.conn.AddDeviceNotification(symbol.Area,symbol.Offset,symbol.Length,ADS_ServerOnChange,2000,100,func(data []byte) {
+		s.notification(data)
+		c(s)
+	});
+
+}                                                          /*}}}*/
+
 // Read a symbol and all sub values
 func (symbol *ADSSymbolUploadSymbol) Read() { /*{{{*/
 	log.Warn("Read (", symbol.Area, ":", symbol.Offset, "): ", symbol.Name)
@@ -517,5 +531,10 @@ func (dt *ADSSymbolUploadDataType) parse(offset uint32, data []byte) { /*{{{*/
 	//segment.Walk(data.Name)
 	//}
 } /*}}}*/
-
+func (symbol *ADSSymbolUploadSymbol) notification(data []byte) {
+	for i, segment := range symbol.Childs {
+		segment.parse(symbol.Offset, data)
+		symbol.Childs[i] = segment
+	}
+}
 

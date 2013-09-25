@@ -52,15 +52,15 @@ func (conn *Connection) encode(command uint16,pack []byte,invoke uint32) (header
     return
 }
 
-func (conn *Connection) decode(in []byte) (length uint16,invoke uint32,err error) {
-    logger.Trace("Starting decoding of AMS header")
+func (conn *Connection) decode(in []byte) (length uint32,invoke uint32,err error) {
+    logger.Trace("Starting decoding of AMS header\n\r",hex.Dump(in))
 
     if len(in) < 38 {
         err = fmt.Errorf("Not a full AMS header (to small, %d < 38byte)",len(in));
         return
     }
 
-    length = binary.LittleEndian.Uint16(in[26:30])
+    length = binary.LittleEndian.Uint32(in[26:30])
     error := binary.LittleEndian.Uint32(in[30:34])
     invoke = binary.LittleEndian.Uint32(in[34:38])
 

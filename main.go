@@ -18,6 +18,9 @@ type Connection struct {
     target AMSAddress
     source AMSAddress
     sendChannel chan []byte
+
+	symbols map[string]ADSSymbolUploadSymbol;
+	datatypes map[string]ADSSymbolUploadDataType;
 }
 
 type AMSAddress struct {
@@ -229,9 +232,9 @@ func (conn *Connection) sendRequest(command uint16, data []byte) (response []byt
         case response = <-activeRequests[id]:
             WaitGroup.Done()
             return
-        case <-time.After(time.Second*2):
+        case <-time.After(time.Second*4):
             WaitGroup.Done()
-            return response, errors.New("Timeout, got no answer in 2sec")
+            return response, errors.New("Timeout, got no answer in 4sec")
         case <-shutdown:
             WaitGroup.Done()
             return response, errors.New("Request aborted, shutdown initiated")

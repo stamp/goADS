@@ -5,7 +5,7 @@ import (
     "encoding/binary"
     "errors"
     "bytes"
-    "encoding/hex"
+//    "encoding/hex"
 )
 
 // ADS command id: 1
@@ -76,9 +76,9 @@ func (conn *Connection) Read(group uint32,offset uint32,length uint32) (response
     }
 
     // Check the response length
-    if len(resp)-8!=int(length) {
+    /*if len(resp)-8!=int(length) {
         return response, errors.New(fmt.Sprintf("Wrong length of response! Got %d bytes and it should be %d",len(resp),length) )
-    }
+    }*/
 
     // Check the result error code
     result := binary.LittleEndian.Uint32(resp[0:4])
@@ -88,8 +88,12 @@ func (conn *Connection) Read(group uint32,offset uint32,length uint32) (response
         return
     }
 
+    if len(resp)-8!=int(datalength) {
+        return response, errors.New(fmt.Sprintf("Wrong length of response! Got %d bytes and it should be %d",len(resp),datalength) )
+	}
+
     response.Data = resp[8:datalength+8]
-    logger.Debugf("The read data at %d:%d: \r\n%s",group,offset,hex.Dump(response.Data))
+    //logger.Debugf("The read data at %d:%d: \r\n%s",group,offset,hex.Dump(response.Data))
 
     return
 }

@@ -20,7 +20,7 @@ type Connection struct {
 	source      AMSAddress
 	sendChannel chan []byte
 
-	symbols   map[string]ADSSymbolUploadSymbol
+	symbols   map[string]ADSSymbol
 	datatypes map[string]ADSSymbolUploadDataType
 }
 
@@ -43,6 +43,7 @@ var WaitGroupFinal sync.WaitGroup
 
 var buf [1024000]byte
 
+// Connection
 func Dial(ip string, netid string, port int) (conn Connection, err error) { /*{{{*/
 	defer logger.Flush()
 
@@ -70,7 +71,167 @@ func Dial(ip string, netid string, port int) (conn Connection, err error) { /*{{
 
 	return
 } /*}}}*/
+func (conn *Connection) Close() { /*{{{*/
+	logger.Trace("CLOSE is called")
 
+	if shutdown != nil {
+		logger.Debug("Sending shutdown to workers")
+		close(shutdown)
+		shutdown = nil
+
+		logger.Debug("Waiting for workers to close")
+		WaitGroup.Wait()
+
+		logger.Debug("Sending shutdown to connection")
+		close(shutdownFinal)
+		shutdownFinal = nil
+
+		logger.Debug("Waiting for connection to close")
+		WaitGroupFinal.Wait()
+	}
+
+	logger.Critical("Shutdown")
+} /*}}}*/
+func (conn *Connection) Wait() {/*{{{*/
+	logger.Critical("Waiting for everything to close")
+
+	WaitGroup.Wait()
+	WaitGroupFinal.Wait()
+
+	logger.Critical("All is closed")
+}/*}}}*/
+func (conn *Connection) Find(name string) (list []*ADSSymbol) {/*{{{*/
+	logger.Debug("Find: ",name)
+
+	for i,_ := range conn.symbols {
+		symbol := conn.symbols[i]
+
+        if len(symbol.FullName)>=len(name)&&symbol.FullName[:len(name)]==name {
+			found := symbol.Self.Find(name)
+			for _, item := range found {
+				list = append(list,item)
+			}
+		}
+	}
+
+	return
+}/*}}}*/
+
+
+func (conn *Connection) sendRequest(command uint16, data []byte) (response []byte, err error) { /*{{{*/
+	WaitGroup.Add(1)
+
+	// First, request a new invoke id
+	id := getNewInvokeId()
+
+	// Create a channel for the response
+	activeRequests[id] = make(chan []byte)
+
+	pack := conn.encode(command, data, id)
+
+	conn.sendChannel <- pack
+
+	select {
+	case response = <-activeRequests[id]:
+		WaitGroup.Done()
+		return
+	case <-time.After(time.Second * 4):
+		WaitGroup.Done()
+		return response, errors.New("Timeout, got no answer in 4sec")
+	case <-shutdown:
+		WaitGroup.Done()
+		return response, errors.New("Request aborted, shutdown initiated")
+	}
+
+	return
+}                                                                                          /*}}}*/
+func (conn *Connection) createNotificationWorker(data []byte,callback func([]byte)) (handle uint32, err error) { /*{{{*/
+	WaitGroup.Add(1)
+
+	// First, request a new invoke id
+	id := getNewInvokeId()
+
+	// Create a channel for the response
+	activeRequests[id] = make(chan []byte)
+
+	pack := conn.encode(uint16(6), data, id)
+
+	conn.sendChannel <- pack
+
+	select {
+	case response := <-activeRequests[id]:
+		result := binary.LittleEndian.Uint32(response[0:4])
+		handle = binary.LittleEndian.Uint32(response[4:8])
+		if result > 0 {
+			err = fmt.Errorf("Got ADS error number %i", result)
+			WaitGroup.Done()
+			return
+		}
+
+		go func() {
+			WaitGroup.Add(1)
+			logger.Debug("Started notification reciver for ", handle)
+			activeNotifications[handle] = make(chan []byte,100)
+
+		Label:
+			for {
+				select {
+				case response = <-activeNotifications[handle]:
+					//logger.Warn(hex.Dump(response))
+					callback(response)
+				case <-shutdown:
+					break Label
+				}
+			}
+
+			conn.DeleteDeviceNotification(handle)
+			close(activeNotifications[handle])
+			logger.Debug("Closed notification reciver for ", handle)
+			WaitGroup.Done()
+		}()
+
+		WaitGroup.Done()
+		return
+	case <-time.After(time.Second * 4):
+		WaitGroup.Done()
+		return handle, errors.New("Timeout, got no answer in 4sec")
+	case <-shutdown:
+		logger.Debug("Aborted createNotificationWorker")
+		WaitGroup.Done()
+		return handle, errors.New("Request aborted, shutdown initiated")
+	}
+
+	return
+} /*}}}*/
+func listen(conn *Connection) <-chan []byte { /*{{{*/
+	c := make(chan []byte)
+
+	go func(conn *Connection) {
+		b := make([]byte, 1024)
+
+		for {
+			n, err := conn.connection.Read(b)
+			if n > 0 {
+				res := make([]byte, n)
+				copy(res, b[:n])
+				c <- res
+			}
+			if err == io.EOF {
+				//fmt.Println("client: Read EOF",n) 
+				break
+			}
+			if err != nil {
+				logger.Errorf("Failed to read socket: %s", err)
+				c <- nil
+				break
+			}
+		}
+	}(conn)
+
+	return c
+} /*}}}*/
+
+// Helpers
 func stringToNetId(source string) (result AMSAddress) { /*{{{*/
 	localhost_split := strings.Split(source, ".")
 
@@ -80,7 +241,16 @@ func stringToNetId(source string) (result AMSAddress) { /*{{{*/
 	}
 	return
 } /*}}}*/
+func getNewInvokeId() uint32 { /*{{{*/
+	invokeIDmutex.Lock()
+	invokeID++
+	id := invokeID
+	invokeIDmutex.Unlock()
 
+	return id
+} /*}}}*/
+
+// Workers
 func reciveWorker(conn *Connection) { /*{{{*/
 	WaitGroupFinal.Add(1)
 
@@ -156,34 +326,6 @@ loop:
 
 	WaitGroupFinal.Done()
 }                                             /*}}}*/
-func listen(conn *Connection) <-chan []byte { /*{{{*/
-	c := make(chan []byte)
-
-	go func(conn *Connection) {
-		b := make([]byte, 1024)
-
-		for {
-			n, err := conn.connection.Read(b)
-			if n > 0 {
-				res := make([]byte, n)
-				copy(res, b[:n])
-				c <- res
-			}
-			if err == io.EOF {
-				//fmt.Println("client: Read EOF",n) 
-				break
-			}
-			if err != nil {
-				logger.Errorf("Failed to read socket: %s", err)
-				c <- nil
-				break
-			}
-		}
-	}(conn)
-
-	return c
-} /*}}}*/
-
 func transmitWorker(conn *Connection) { /*{{{*/
 	WaitGroupFinal.Add(1)
 
@@ -200,122 +342,4 @@ loop:
 	}
 
 	WaitGroupFinal.Done()
-} /*}}}*/
-
-func (conn *Connection) Close() { /*{{{*/
-	logger.Trace("CLOSE is called")
-
-	if shutdown != nil {
-		logger.Debug("Sending shutdown to workers")
-		close(shutdown)
-		shutdown = nil
-
-		logger.Debug("Waiting for workers to close")
-		WaitGroup.Wait()
-
-		logger.Debug("Sending shutdown to connection")
-		close(shutdownFinal)
-		shutdownFinal = nil
-
-		logger.Debug("Waiting for connection to close")
-		WaitGroupFinal.Wait()
-	}
-
-	//logger.Critical("Shutdown")
-} /*}}}*/
-func (conn *Connection) Wait() {
-	WaitGroup.Wait()
-	WaitGroupFinal.Wait()
-}
-
-func getNewInvokeId() uint32 { /*{{{*/
-	invokeIDmutex.Lock()
-	invokeID++
-	id := invokeID
-	invokeIDmutex.Unlock()
-
-	return id
-} /*}}}*/
-
-func (conn *Connection) sendRequest(command uint16, data []byte) (response []byte, err error) { /*{{{*/
-	WaitGroup.Add(1)
-
-	// First, request a new invoke id
-	id := getNewInvokeId()
-
-	// Create a channel for the response
-	activeRequests[id] = make(chan []byte)
-
-	pack := conn.encode(command, data, id)
-
-	conn.sendChannel <- pack
-
-	select {
-	case response = <-activeRequests[id]:
-		WaitGroup.Done()
-		return
-	case <-time.After(time.Second * 4):
-		WaitGroup.Done()
-		return response, errors.New("Timeout, got no answer in 4sec")
-	case <-shutdown:
-		WaitGroup.Done()
-		return response, errors.New("Request aborted, shutdown initiated")
-	}
-
-	return
-}                                                                                          /*}}}*/
-func (conn *Connection) createNotificationWorker(data []byte,callback func([]byte)) (handle uint32, err error) { /*{{{*/
-	WaitGroup.Add(1)
-
-	// First, request a new invoke id
-	id := getNewInvokeId()
-
-	// Create a channel for the response
-	activeRequests[id] = make(chan []byte)
-
-	pack := conn.encode(uint16(6), data, id)
-
-	conn.sendChannel <- pack
-
-	select {
-	case response := <-activeRequests[id]:
-		result := binary.LittleEndian.Uint32(response[0:4])
-		handle = binary.LittleEndian.Uint32(response[4:8])
-		if result > 0 {
-			err = fmt.Errorf("Got ADS error number %i", result)
-			WaitGroup.Done()
-			return
-		}
-
-		go func() {
-			WaitGroup.Add(1)
-			logger.Debug("Started notification reciver for ", handle)
-			activeNotifications[handle] = make(chan []byte)
-
-		Label:
-			for {
-				select {
-				case response = <-activeNotifications[handle]:
-					//logger.Warn(hex.Dump(response))
-					callback(response)
-				case <-shutdown:
-					break Label
-				}
-			}
-
-			conn.DeleteDeviceNotification(handle)
-			close(activeNotifications[handle])
-			logger.Debug("Closed notification reciver for ", handle)
-			WaitGroup.Done()
-		}()
-
-	case <-time.After(time.Second * 4):
-		WaitGroup.Done()
-		return handle, errors.New("Timeout, got no answer in 4sec")
-	case <-shutdown:
-		WaitGroup.Done()
-		return handle, errors.New("Request aborted, shutdown initiated")
-	}
-
-	return
 } /*}}}*/

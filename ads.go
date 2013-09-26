@@ -264,7 +264,8 @@ func (conn *Connection) DeviceNotification(in []byte) {
 					case activeNotifications[sample.Handle] <- content:
 						logger.Debugf("Successfully delived notification for handle %d",sample.Handle);
 					default:
-						logger.Errorf("Failed to deliver notification for handle %d",sample.Handle);
+						logger.Errorf("Failed to deliver notification for handle %d, deleting device notification",sample.Handle);
+                        conn.DeleteDeviceNotification(sample.Handle)
 				}
 			}
 		}

@@ -31,25 +31,44 @@ type ADSSymbolUploadSymbol struct { /*{{{*/
 type ADSSymbolUploadDataType struct { /*{{{*/
 	conn *Connection
 
-	Name     string
-	Area     uint32
-	Offset   uint32
-	DataType string
-	Comment  string
+	Name        string
+	Area        uint32
+	Offset      uint32
+	DataType    string
+	Comment     string
 
-	Value string
+	Value       string
+    Changed     bool
 
-	Childs map[string]ADSSymbolUploadDataType
+	Childs      map[string]ADSSymbolUploadDataType
 
-	In1        uint32
-	Decoration uint32
-	In3        uint32
-	Size       uint32
-	//Offset         uint32
-	In6 uint32
-	In7 uint32
+	In1         uint32
+	Decoration  uint32
+	In3         uint32
+	Size        uint32
+	In6         uint32
+	In7         uint32
 	ArrayLevels uint16
-	In8 uint16
+	In8         uint16
+}                                 /*}}}*/
+type ADSSymbol struct { /*{{{*/
+	conn *Connection
+
+	Self		*ADSSymbol
+	FullName    string
+	Name        string
+	DataType    string
+	Comment     string
+
+	Area        uint32
+	Offset      uint32
+	Length		uint32
+
+	Value       string
+	Valid       bool
+    Changed     bool
+
+	Childs      map[string]ADSSymbol
 }                                 /*}}}*/
 type ADSSymbolUploadInfo struct { /*{{{*/
 	SymbolCount    uint32
@@ -60,7 +79,7 @@ type ADSSymbolUploadInfo struct { /*{{{*/
 	ExtraLength    uint32
 } /*}}}*/
 
-func (conn *Connection) UploadSymbolInfo() (symbols map[string]ADSSymbolUploadSymbol, structs map[string]ADSSymbolUploadDataType) {
+func (conn *Connection) UploadSymbolInfo() (symbols map[string]ADSSymbol, structs map[string]ADSSymbolUploadDataType) {
 
 	res, _ := conn.Read(61455, 0, 48) //UploadSymbolInfo;
 
@@ -89,7 +108,7 @@ func (conn *Connection) UploadSymbolInfoSymbols(length uint32) { /*{{{*/
 	}
 
 	if conn.symbols == nil {
-		conn.symbols = map[string]ADSSymbolUploadSymbol{}
+		conn.symbols = map[string]ADSSymbol{}
 	}
 
 	var buff bytes.Buffer
@@ -174,6 +193,8 @@ func (conn *Connection) UploadSymbolInfoDataTypes(length uint32) { /*{{{*/
 	}
 	//   log.Warn(hex.Dump(header));
 }                                                                                                     /*}}}*/
+
+
 type arrayInfo struct {
 	Start uint32
 	Length uint32
@@ -230,7 +251,6 @@ func decodeSymbolUploadDataType(data *bytes.Buffer, parent string) (header ADSSy
 	header.Offset = result.Offset
 	header.In6 = result.In6
 	header.In7 = result.In7
-	header.Value = "nil"
 	header.ArrayLevels = result.ArrayLevels
 
 	if len(header.DataType) > 6 {
@@ -284,7 +304,7 @@ func decodeSymbolUploadDataType(data *bytes.Buffer, parent string) (header ADSSy
 
 	return
 } /*}}}*/
-func makeArrayChilds(levels []arrayInfo, dt string, size uint32 ) (childs map[string]ADSSymbolUploadDataType) {
+func makeArrayChilds(levels []arrayInfo, dt string, size uint32 ) (childs map[string]ADSSymbolUploadDataType) {/*{{{*/
 	childs = map[string]ADSSymbolUploadDataType{}
 
 	if len(levels) < 1 {
@@ -313,42 +333,69 @@ func makeArrayChilds(levels []arrayInfo, dt string, size uint32 ) (childs map[st
 		offset += size/level.Length
 	}
 
-
 	return
-}
+}/*}}}*/
 
 // Add symbols to the list and read the data type
 func (conn *Connection) addSymbol(symbol ADSSymbolUploadSymbol) { /*{{{*/
-	dt, ok := conn.datatypes[symbol.DataType]
+	sym := ADSSymbol{}
 
+	sym.Self = &sym
+	sym.conn = conn
+	sym.Name = symbol.Name
+	sym.FullName = symbol.Name
+	sym.DataType = symbol.DataType
+	sym.Comment = symbol.Comment
+	sym.Length = symbol.Length
+
+	sym.Area = symbol.Area
+	sym.Offset = symbol.Offset
+
+	dt, ok := conn.datatypes[symbol.DataType]
 	if ok {
-		symbol.Childs = dt.addOffset(conn, symbol.Area, symbol.Offset)
+		sym.Childs = dt.addOffset(conn, sym.Name, symbol.Area, symbol.Offset)
 	}
 
-	conn.symbols[symbol.Name] = symbol
+	conn.symbols[symbol.Name] = sym
+
+	return
 }                                                                                                                                          /*}}}*/
-func (data *ADSSymbolUploadDataType) addOffset(conn *Connection, area uint32, offset uint32) (childs map[string]ADSSymbolUploadDataType) { /*{{{*/
-	childs = map[string]ADSSymbolUploadDataType{}
+func (data *ADSSymbolUploadDataType) addOffset(conn *Connection, parent string, area uint32, offset uint32) (childs map[string]ADSSymbol) { /*{{{*/
+	childs = map[string]ADSSymbol{}
+
+	var path string
 
 	// Make a copy of the datatype
-	for k, v := range data.Childs {
-		childs[k] = v
-	}
+	for key,segment := range data.Childs {
 
-	for key, segment := range childs {
+		if ( segment.Name[0:1] != "[" ) {
+			path = fmt.Sprint(parent, ".", segment.Name)
+		} else {
+			path = fmt.Sprint(parent, segment.Name)
+		}
+
+		child := ADSSymbol{}
+		child.Self = &child
+
+		child.conn = segment.conn
+		child.Name = segment.Name
+		child.FullName = path
+		child.DataType = segment.DataType
+		child.Comment = segment.Comment
+		child.Length = segment.Size
+
 		// Uppdate with area and offset
-		segment.Area = area
-		segment.Offset = segment.Offset + offset
+		child.Area = area
+		child.Offset = segment.Offset + offset
 
 		// Check if subitems exist
 		dt, ok := conn.datatypes[segment.DataType]
 		if ok {
 			//log.Warn("Found sub ",segment.DataType);
-			segment.Childs = dt.addOffset(conn, segment.Area, segment.Offset)
+			child.Childs = dt.addOffset(conn, path, child.Area, child.Offset)
 		}
 
-		// Save the change
-		childs[key] = segment
+		childs[key] = child
 	}
 
 	return
@@ -356,7 +403,7 @@ func (data *ADSSymbolUploadDataType) addOffset(conn *Connection, area uint32, of
 
 // Print the whole symbol and data type lists
 func (data *ADSSymbolUploadSymbol) DebugWalk() { /*{{{*/
-	log.Warn("SYMBOL (", data.Area, ":", data.Offset, "): ", data.Name, " - ", data.DataType, "[", data.Length, "] ", data.Comment)
+	log.Warn("DebugWalk (", data.Area, ":", data.Offset, "): ", data.Name, " - ", data.DataType, "[", data.Length, "] ", data.Comment)
 
 	for _, segment := range data.Childs {
 		segment.DebugWalk()
@@ -371,38 +418,80 @@ func (data *ADSSymbolUploadDataType) DebugWalk() { /*{{{*/
 } /*}}}*/
 
 // Print the whole symbol and data type lists
-func (data *ADSSymbolUploadSymbol) Walk() { /*{{{*/
-	log.Info("SYMBOL (", data.Area, ":", data.Offset, "): ", data.Name)
+//func (data *ADSSymbolUploadSymbol) Walk() { [>{{{<]
+	//log.Info("Walk (", data.Area, ":", data.Offset, "): ", data.Name," - have ",len(data.Childs)," childs")
 
-	for _, segment := range data.Childs {
-		segment.Walk(data.Name)
-	}
-}                                                          /*}}}*/
-func (data *ADSSymbolUploadDataType) Walk(parent string) { /*{{{*/
-	var path string
-
-	if ( data.Name[0:1] != "[" ) {
-		path = fmt.Sprint(parent, ".", data.Name)
-	} else {
-		path = fmt.Sprint(parent, data.Name)
-	}
-
+	//for _, segment := range data.Childs {
+		//segment.Walk(data.Name)
+	//}
+//}                                                          [>}}}<]
+func (data *ADSSymbol) Walk() { /*{{{*/
 	if len(data.Childs) == 0 {
-		if data.Value != "nil" {
-			log.Info("TYPE (", data.Area, ":", data.Offset, "): ", path, " [", data.DataType, "|",data.Size,"] = ", data.Value)
+		if !data.Valid {
+			log.Info("TYPE (", data.Area, ":", data.Offset, "): ", data.FullName, " [", data.DataType, "|",data.Length,"] = INVALID")
 		} else {
-			log.Warn("TYPE (", data.Area, ":", data.Offset, "): ", path, " [", data.DataType, "|",data.Size,"] = ", data.Value)
+			log.Warn("TYPE (", data.Area, ":", data.Offset, "): ", data.FullName, " [", data.DataType, "|",data.Length,"] = ", data.Value)
 		}
 	} else {
 		//log.Error("TYPE (", data.Area, ":", data.Offset, "): ", path, " [", data.DataType, "] = ", data.Value)
-		for _, segment := range data.Childs {
-			segment.Walk(path)
+		for i,_  := range data.Childs {
+			data.Childs[i].Self.Walk()
 		}
 	}
 } /*}}}*/
 
+//func (data *ADSSymbolUploadSymbol) FindChanged() (changed []*ADSSymbolUploadDataType) { [>{{{<]
+	//log.Info("FindChanged (", data.Area, ":", data.Offset, "): ", data.Name)
 
-func (symbol *ADSSymbolUploadSymbol) AddDeviceNotification(callback func(*ADSSymbolUploadSymbol)) { /*{{{*/
+	//for _, segment := range data.Childs {
+		//c := segment.FindChanged(segment.Name)
+        //for _, cc := range c {
+            //changed = append(changed,cc)
+        //}
+	//}
+
+    //return
+//}                                                          [>}}}<]
+func (data *ADSSymbol) FindChanged() (changed []*ADSSymbol) { /*{{{*/
+
+	if len(data.Childs) == 0 {
+        if data.Changed && data.Valid {
+			//log.Debug("Changed: ",data.FullName,"|",data.Value,"|",data.PrevValue,"=",data.Changed)
+            changed = append(changed,data)
+        /*} else {
+			log.Debug("NOT: ",path,"|",data.Value,"|",data.PrevValue)*/
+		}
+        data.Changed = false
+	} else {
+		for i,_ := range data.Childs {
+			c := data.Childs[i].Self.FindChanged()
+            for _, cc := range c {
+                changed = append(changed,cc)
+            }
+		}
+	}
+
+    return
+} /*}}}*/
+
+func (data *ADSSymbol) Find(name string) (list []*ADSSymbol) { /*{{{*/
+	if len(data.Childs) == 0 {
+        if len(data.FullName)>=len(name)&&data.FullName[:len(name)]==name {
+            list = append(list,data)
+		}
+	} else {
+		for i,_ := range data.Childs {
+			c := data.Childs[i].Self.Find(name)
+            for _, cc := range c {
+                list = append(list,cc)
+            }
+		}
+	}
+
+    return
+} /*}}}*/
+
+func (symbol *ADSSymbol) AddDeviceNotification(callback func(*ADSSymbol)) { /*{{{*/
 	log.Info("AddDeviceNotification (", symbol.Area, ":", symbol.Offset, "): ", symbol.Name)
 
 	s := symbol
@@ -416,7 +505,7 @@ func (symbol *ADSSymbolUploadSymbol) AddDeviceNotification(callback func(*ADSSym
 }                                                          /*}}}*/
 
 // Read a symbol and all sub values
-func (symbol *ADSSymbolUploadSymbol) Read() { /*{{{*/
+func (symbol *ADSSymbol) Read() { /*{{{*/
 	log.Warn("Read (", symbol.Area, ":", symbol.Offset, "): ", symbol.Name)
 
 	res, _ := symbol.conn.Read(symbol.Area, symbol.Offset, symbol.Length)
@@ -424,117 +513,131 @@ func (symbol *ADSSymbolUploadSymbol) Read() { /*{{{*/
 
 	//log.Error(hex.Dump(buff.Bytes()));
 
-	for i, segment := range symbol.Childs {
+	for i, _ := range symbol.Childs {
+		segment := symbol.Childs[i]
 		segment.parse(symbol.Offset, res.Data)
-		symbol.Childs[i] = segment
 	}
 }                                                                      /*}}}*/
-func (dt *ADSSymbolUploadDataType) parse(offset uint32, data []byte) { /*{{{*/
+func (dt *ADSSymbol) parse(offset uint32, data []byte) { /*{{{*/
 	start := dt.Offset - offset
-	stop := start + dt.Size
+	stop := start + dt.Length
 
-	//log.Debug(dt.Name, ".parse(", start, ":", stop, ",", len(data), ")")
-
-	for i, segment := range dt.Childs {
-		segment.parse(offset, data)
-		dt.Childs[i] = segment
+	for i,_ := range dt.Childs {
+		dt.Childs[i].Self.parse(offset, data)
 	}
 
 	if len(dt.Childs) == 0 {
+        var newValue = "nil"
+
+		if int(start)<0||int(stop)>len(data) {
+			log.Errorf("Incomming data is to small, !0<%d<%d<%d",start,stop,len(data));
+			return
+		}
 
 		switch dt.DataType {
 		case "BOOL":
 			if stop-start != 1 {return}
 			if data[start:stop][0] > 0 {
-				dt.Value = "True"
+				newValue = "True"
 			} else {
-				dt.Value = "False"
+				newValue = "False"
 			}
 		case "BYTE","USINT": // Unsigned Short INT 0 to 255
 			if stop-start != 1 {return}
 			buf := bytes.NewBuffer(data[start:stop])
 			var i uint8
 			binary.Read(buf, binary.LittleEndian, &i)
-			dt.Value = strconv.FormatInt(int64(i), 10)
+			newValue = strconv.FormatInt(int64(i), 10)
 		case "SINT": // Short INT -128 to 127
 			if stop-start != 1 {return}
 			buf := bytes.NewBuffer(data[start:stop])
 			var i int8
 			binary.Read(buf, binary.LittleEndian, &i)
-			dt.Value = strconv.FormatInt(int64(i), 10)
+			newValue = strconv.FormatInt(int64(i), 10)
 		case "UINT","WORD":
 			if stop-start != 2 {return}
 			i := binary.LittleEndian.Uint16(data[start:stop])
-			dt.Value = strconv.FormatUint(uint64(i), 10)
+			newValue = strconv.FormatUint(uint64(i), 10)
 		case "UDINT","DWORD":
 			if stop-start != 4 {return}
 			i := binary.LittleEndian.Uint32(data[start:stop])
-			dt.Value = strconv.FormatUint(uint64(i), 10)
+			newValue = strconv.FormatUint(uint64(i), 10)
 		case "INT":
 			if stop-start != 2 {return}
 			buf := bytes.NewBuffer(data[start:stop])
 			var i int16
 			binary.Read(buf, binary.LittleEndian, &i)
-			dt.Value = strconv.FormatInt(int64(i), 10)
+			newValue = strconv.FormatInt(int64(i), 10)
 		case "DINT":
 			if stop-start != 4 {return}
 			buf := bytes.NewBuffer(data[start:stop])
 			var i int32
 			binary.Read(buf, binary.LittleEndian, &i)
-			dt.Value = strconv.FormatInt(int64(i), 10)
+			newValue = strconv.FormatInt(int64(i), 10)
 		case "REAL":
 			if stop-start != 4 {return}
 			i := binary.LittleEndian.Uint32(data[start:stop])
 			f := math.Float32frombits(i)
-			dt.Value = strconv.FormatFloat(float64(f), 'f', -1, 32)
+			newValue = strconv.FormatFloat(float64(f), 'f', -1, 32)
 		case "LREAL":
 			if stop-start != 8 {return}
 			i := binary.LittleEndian.Uint64(data[start:stop])
 			f := math.Float64frombits(i)
-			dt.Value = strconv.FormatFloat(f, 'f', -1, 64)
+			newValue = strconv.FormatFloat(f, 'f', -1, 64)
 		case "STRING":
-			dt.Value = string(data[start:stop])
+			newValue = string( bytes.TrimSpace(data[start:stop]) )
 		case "TIME":
 			if stop-start != 4 {return}
 			i := binary.LittleEndian.Uint32(data[start:stop])
 			t := time.Unix(0, int64(uint64(i)*uint64(time.Millisecond))-int64(time.Hour) )
 
-			dt.Value = t.Truncate(time.Millisecond).Format("15:04:05.999999999")
+			newValue = t.Truncate(time.Millisecond).Format("15:04:05.999999999")
 		case "TOD":
 			if stop-start != 4 {return}
 			i := binary.LittleEndian.Uint32(data[start:stop])
 			t := time.Unix(0, int64(uint64(i)*uint64(time.Millisecond))-int64(time.Hour) )
 
-			dt.Value = t.Truncate(time.Millisecond).Format("15:04")
+			newValue = t.Truncate(time.Millisecond).Format("15:04")
 		case "DATE":
 			if stop-start != 4 {return}
 			i := binary.LittleEndian.Uint32(data[start:stop])
 			t := time.Unix(0, int64(uint64(i)*uint64(time.Second)) )
 
-			dt.Value = t.Truncate(time.Millisecond).Format("2006-01-02")
+			newValue = t.Truncate(time.Millisecond).Format("2006-01-02")
 		case "DT":
 			if stop-start != 4 {return}
 			i := binary.LittleEndian.Uint32(data[start:stop])
 			t := time.Unix(0, int64(uint64(i)*uint64(time.Second))-int64(time.Hour) )
 
-			dt.Value = t.Truncate(time.Millisecond).Format("2006-01-02 15:04:05")
+			newValue = t.Truncate(time.Millisecond).Format("2006-01-02 15:04:05")
 		default:
-			dt.Value = "nil"
+			newValue = "nil"
 		}
+
+        if strcmp(dt.Value,newValue)!=0 {
+			dt.Value = newValue
+			dt.Changed = dt.Valid
+        }
+
+		dt.Valid = true
+    }
+}
+func strcmp(a, b string) int {
+	min := len(b)
+	if len(a) < len(b) {
+		min = len(a)
 	}
-
-	//buff := bytes.NewBuffer(res.Data)
-
-	//log.Error(hex.Dump(buff.Bytes()));
-
-	//for _, segment := range data.Childs {
-	//segment.Walk(data.Name)
-	//}
-} /*}}}*/
-func (symbol *ADSSymbolUploadSymbol) notification(data []byte) {
-	for i, segment := range symbol.Childs {
-		segment.parse(symbol.Offset, data)
-		symbol.Childs[i] = segment
+	diff := 0
+	for i := 0; i < min && diff == 0; i++ {
+		diff = int(a[i]) - int(b[i])
 	}
+	if diff == 0 {
+		diff = len(a) - len(b)
+	}
+	return diff
+}
+/*}}}*/
+func (symbol *ADSSymbol) notification(data []byte) {
+	symbol.parse(symbol.Offset, data)
 }
 

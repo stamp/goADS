@@ -10,6 +10,11 @@ import (
 func (conn *Connection) encode(command uint16,pack []byte,invoke uint32) (header []byte) {
     logger.Tracef("Starting encoding of AMS header command: %d",command)
 
+	if conn==nil {
+		logger.Error("Failed to encode header, connection is nil pointer");
+		return
+	}
+
     buf := new(bytes.Buffer)
     var data = []interface{}{
         uint16(0),

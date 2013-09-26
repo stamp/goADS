@@ -377,7 +377,7 @@ func (data *ADSSymbolUploadDataType) addOffset(conn *Connection, parent string, 
 		child := ADSSymbol{}
 		child.Self = &child
 
-		child.conn = segment.conn
+		child.conn = conn
 		child.Name = segment.Name
 		child.FullName = path
 		child.DataType = segment.DataType
@@ -428,9 +428,9 @@ func (data *ADSSymbolUploadDataType) DebugWalk() { /*{{{*/
 func (data *ADSSymbol) Walk() { /*{{{*/
 	if len(data.Childs) == 0 {
 		if !data.Valid {
-			log.Info("TYPE (", data.Area, ":", data.Offset, "): ", data.FullName, " [", data.DataType, "|",data.Length,"] = INVALID")
+			log.Warn("TYPE (", data.Area, ":", data.Offset, "): ", data.FullName, " [", data.DataType, "|",data.Length,"] = INVALID")
 		} else {
-			log.Warn("TYPE (", data.Area, ":", data.Offset, "): ", data.FullName, " [", data.DataType, "|",data.Length,"] = ", data.Value)
+			log.Info("TYPE (", data.Area, ":", data.Offset, "): ", data.FullName, " [", data.DataType, "|",data.Length,"] = ", data.Value)
 		}
 	} else {
 		//log.Error("TYPE (", data.Area, ":", data.Offset, "): ", path, " [", data.DataType, "] = ", data.Value)
@@ -482,7 +482,7 @@ func (data *ADSSymbol) Find(name string) (list []*ADSSymbol) { /*{{{*/
 	} else {
 		for i,_ := range data.Childs {
 			c := data.Childs[i].Self.Find(name)
-            for _, cc := range c {
+            for _,cc  := range c {
                 list = append(list,cc)
             }
 		}
@@ -509,15 +509,124 @@ func (symbol *ADSSymbol) Read() { /*{{{*/
 	log.Warn("Read (", symbol.Area, ":", symbol.Offset, "): ", symbol.Name)
 
 	res, _ := symbol.conn.Read(symbol.Area, symbol.Offset, symbol.Length)
-	//buff := bytes.NewBuffer(res.Data)
-
-	//log.Error(hex.Dump(buff.Bytes()));
 
 	for i, _ := range symbol.Childs {
 		segment := symbol.Childs[i]
 		segment.parse(symbol.Offset, res.Data)
 	}
-}                                                                      /*}}}*/
+}
+/*}}}*/
+func (symbol *ADSSymbol) Write(value string) (error) { /*{{{*/
+	log.Warn("Write (", symbol.Area, ":", symbol.Offset, "): ", symbol.Name)
+
+	if len(symbol.Childs) != 0 {
+		e := fmt.Errorf("Cannot write to a whole struct at once!")
+		log.Error(e)
+		return e
+	}
+
+	buf := bytes.NewBuffer([]byte{})
+
+		switch symbol.DataType {
+		case "BOOL":
+			v,e := strconv.ParseBool(value)
+			if e!=nil { return e }
+
+			if v {
+				buf.Write([]byte{1});
+			} else {
+				buf.Write([]byte{0});
+			}
+		case "BYTE","USINT": // Unsigned Short INT 0 to 255
+			v,e := strconv.ParseUint(value,10,8)
+			if e!=nil { return e }
+
+			v8 := uint8(v)
+			binary.Write(buf,binary.LittleEndian, &v8 )
+		case "UINT","WORD":
+			v,e := strconv.ParseUint(value,10,16)
+			if e!=nil { return e }
+
+			v16 := uint16(v)
+			binary.Write(buf,binary.LittleEndian, &v16 )
+		case "UDINT","DWORD":
+			v,e := strconv.ParseUint(value,10,32)
+			if e!=nil { return e }
+
+			v32 := uint32(v)
+			binary.Write(buf,binary.LittleEndian, &v32 )
+
+		case "SINT": // Short INT -128 to 127
+			v,e := strconv.ParseInt(value,10,8)
+			if e!=nil { return e }
+
+			v8 := int8(v)
+			binary.Write(buf,binary.LittleEndian, &v8 )
+		case "INT":
+			v,e := strconv.ParseInt(value,10,16)
+			if e!=nil { return e }
+
+			v16 := int16(v)
+			binary.Write(buf,binary.LittleEndian, &v16 )
+		case "DINT":
+			v,e := strconv.ParseInt(value,10,32)
+			if e!=nil { return e }
+
+			v32 := int32(v)
+			binary.Write(buf,binary.LittleEndian, &v32 )
+
+		case "REAL":
+			v,e := strconv.ParseFloat(value,32)
+			if e!=nil { return e }
+
+			v32 := math.Float32bits(float32(v))
+			binary.Write(buf,binary.LittleEndian, &v32 )
+		case "LREAL":
+			v,e := strconv.ParseFloat(value,64)
+			if e!=nil { return e }
+
+			v64 := math.Float64bits(v)
+			binary.Write(buf,binary.LittleEndian, &v64 )
+		case "STRING":
+			buf.Write([]byte(value));
+		/*case "TIME":
+			if stop-start != 4 {return}
+			i := binary.LittleEndian.Uint32(data[start:stop])
+			t := time.Unix(0, int64(uint64(i)*uint64(time.Millisecond))-int64(time.Hour) )
+
+			newValue = t.Truncate(time.Millisecond).Format("15:04:05.999999999")
+		case "TOD":
+			if stop-start != 4 {return}
+			i := binary.LittleEndian.Uint32(data[start:stop])
+			t := time.Unix(0, int64(uint64(i)*uint64(time.Millisecond))-int64(time.Hour) )
+
+			newValue = t.Truncate(time.Millisecond).Format("15:04")
+		case "DATE":
+			if stop-start != 4 {return}
+			i := binary.LittleEndian.Uint32(data[start:stop])
+			t := time.Unix(0, int64(uint64(i)*uint64(time.Second)) )
+
+			newValue = t.Truncate(time.Millisecond).Format("2006-01-02")
+		case "DT":
+			if stop-start != 4 {return}
+			i := binary.LittleEndian.Uint32(data[start:stop])
+			t := time.Unix(0, int64(uint64(i)*uint64(time.Second))-int64(time.Hour) )
+
+			newValue = t.Truncate(time.Millisecond).Format("2006-01-02 15:04:05")*/
+		default:
+			e := fmt.Errorf("Datatype '%s' write is not implemented yet!",symbol.DataType)
+			log.Error(e)
+			return e
+		}
+
+
+	symbol.Self.conn.Write(symbol.Area, symbol.Offset, buf.Bytes())
+
+	return nil
+
+}
+/*}}}*/
+
 func (dt *ADSSymbol) parse(offset uint32, data []byte) { /*{{{*/
 	start := dt.Offset - offset
 	stop := start + dt.Length

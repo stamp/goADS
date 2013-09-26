@@ -103,22 +103,76 @@ func (conn *Connection) Wait() {/*{{{*/
 func (conn *Connection) Find(name string) (list []*ADSSymbol) {/*{{{*/
 	logger.Debug("Find: ",name)
 
+	if conn==nil {
+		logger.Error("Failed FIND, connection is nil pointer")
+		return
+	}
+
 	for i,_ := range conn.symbols {
 		symbol := conn.symbols[i]
 
-        if len(symbol.FullName)>=len(name)&&symbol.FullName[:len(name)]==name {
+        if len(name)>=len(symbol.FullName)&&name[:len(symbol.FullName)]==symbol.FullName {
 			found := symbol.Self.Find(name)
-			for _, item := range found {
+			for i,_ := range found {
+				item := found[i]
 				list = append(list,item)
 			}
 		}
 	}
 
+	logger.Debug("Found ",len(list)," tags")
 	return
+}/*}}}*/
+func (conn *Connection) Value(name string) (value string) {/*{{{*/
+	logger.Debug("Value: ",name)
+
+	list := conn.Find(name)
+	for i,_ := range list {
+		symbol := list[i]
+        if len(symbol.FullName)>=len(name)&&symbol.FullName==name {
+			logger.Debug("Found value ",symbol.Value)
+			return symbol.Value
+			break;
+		} else {
+			logger.Debug("Not ",symbol.FullName)
+		}
+	}
+
+	return
+}/*}}}*/
+func (conn *Connection) Set(name, value string) {/*{{{*/
+	logger.Debug("Set: ",name,"=",value)
+
+	if conn==nil {
+		logger.Error("Failed SET, connection is nil pointer")
+		return
+	}
+
+	list := conn.Find(name)
+	for i,_ := range list {
+		symbol := list[i]
+
+        if len(symbol.FullName)>=len(name)&&symbol.FullName==name {
+			if symbol.Self.conn==nil {
+				logger.Error("Failed SET, connection is nil pointer")
+				return
+			}
+			logger.Debug("Write tag")
+			symbol.Self.Write(value)
+			return
+		}
+	}
+
 }/*}}}*/
 
 
+
 func (conn *Connection) sendRequest(command uint16, data []byte) (response []byte, err error) { /*{{{*/
+	if conn==nil {
+		logger.Error("Failed to encode header, connection is nil pointer");
+		return
+	}
+
 	WaitGroup.Add(1)
 
 	// First, request a new invoke id

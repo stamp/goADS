@@ -5,7 +5,7 @@ import (
     "encoding/binary"
     "errors"
     "bytes"
-//    "encoding/hex"
+//   "encoding/hex"
 )
 
 type ADSNotification struct {
@@ -79,11 +79,6 @@ func (conn *Connection) Read(group uint32,offset uint32,length uint32) (response
         return
     }
 
-    // Check the response length
-    /*if len(resp)-8!=int(length) {
-        return response, errors.New(fmt.Sprintf("Wrong length of response! Got %d bytes and it should be %d",len(resp),length) )
-    }*/
-
     // Check the result error code
     result := binary.LittleEndian.Uint32(resp[0:4])
     datalength := binary.LittleEndian.Uint32(resp[4:8])
@@ -102,8 +97,48 @@ func (conn *Connection) Read(group uint32,offset uint32,length uint32) (response
     return
 }/*}}}*/
 /*}}}*/
-// Write TODO					- ADS command id: 3/*{{{*/
-func (conn *Connection) Write() {
+// Write						- ADS command id: 3/*{{{*/
+func (conn *Connection) Write(group uint32,offset uint32,data []byte) {
+	if conn==nil {
+		logger.Error("Failed to Write, connection is nil pointer");
+		return
+	}
+
+    request := new(bytes.Buffer)
+
+	length := uint32(len(data))
+    var content = []interface{}{
+        group,
+		offset,
+		length,
+    }
+
+    for _, v := range content {
+        err := binary.Write(request, binary.LittleEndian, v)
+        if err != nil {
+            logger.Errorf("binary.Write failed: %s", err)
+        }
+    }
+
+    _,err := request.Write(data)
+    if err != nil {
+        logger.Errorf("bytes.Write failed: %s", err)
+	}
+
+    // Try to send the request
+    resp,err := conn.sendRequest(3,request.Bytes())
+    if err!=nil {
+        return
+    }
+
+    // Check the result error code
+    result := binary.LittleEndian.Uint32(resp[0:4])
+    if result>0 {
+        err = fmt.Errorf("Got ADS error number %i",result)
+        return
+    }
+
+    return
 }
 /*}}}*/
 // ReadState					- ADS command id: 4/*{{{*/

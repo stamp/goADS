@@ -70,7 +70,13 @@ func main() {
 	pd,ok := symbols[".PD"]
 	//pd,ok := symbols[".SYSTEMTASKINFOARR"]
 	if ok {
-		pd.AddDeviceNotification(func(symbol *goADS.ADSSymbolUploadSymbol) {
+		pd.AddDeviceNotification(func(symbol *goADS.ADSSymbol) {
+			val := connection.Value(".PD.TEST1BOOL")
+			if val=="True" {
+				connection.Set(".PD.TEST1WORD","1")
+			} else {
+				connection.Set(".PD.TEST1WORD","0")
+			}
 			symbol.Walk()
 		})
 //		pd.DebugWalk()

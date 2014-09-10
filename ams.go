@@ -73,7 +73,7 @@ func (conn *Connection) decode(in []byte) (command uint16,length uint32,invoke u
     logger.Tracef("cmd: %d len: %d error: %d invoke: %d",command,length,error,invoke )
 
     if error > 0 {
-        err = fmt.Errorf("Got ADS error code %d",error)
+        err = fmt.Errorf("Got ADS error code: ",error ," in AMS decode")
         logger.Error(err)
         return
     }

@@ -217,7 +217,7 @@ func (conn *Connection) createNotificationWorker(data []byte,callback func([]byt
 		result := binary.LittleEndian.Uint32(response[0:4])
 		handle = binary.LittleEndian.Uint32(response[4:8])
 		if result > 0 {
-			err = fmt.Errorf("Got ADS error number %i", result)
+			err = errors.New("Got ADS error number: "+strconv.FormatUint(uint64(result),10)+ " when creating a notification handle")
 			WaitGroup.Done()
 			return
 		}

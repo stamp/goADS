@@ -5,6 +5,7 @@ import (
     "encoding/binary"
     "errors"
     "bytes"
+    "strconv"
 //   "encoding/hex"
 )
 
@@ -36,7 +37,7 @@ func (conn *Connection) ReadDeviceInfo() (response ADSReadDeviceInfo, err error)
     // Check the result error code
     result := binary.LittleEndian.Uint32(resp[0:4])
     if result>0 {
-        err = fmt.Errorf("Got ADS error number %i",result)
+        err = errors.New("Got ADS error number "+strconv.FormatUint(uint64(result),10)+" in ReadDeviceInfo")
         return
     }
 
@@ -83,7 +84,7 @@ func (conn *Connection) Read(group uint32,offset uint32,length uint32) (response
     result := binary.LittleEndian.Uint32(resp[0:4])
     datalength := binary.LittleEndian.Uint32(resp[4:8])
     if result>0 {
-        err = fmt.Errorf("Got ADS error number %i",result)
+        err = errors.New("Got ADS error number "+strconv.FormatUint(uint64(result),10)+" in Read")
         return
     }
 
@@ -134,7 +135,7 @@ func (conn *Connection) Write(group uint32,offset uint32,data []byte) {
     // Check the result error code
     result := binary.LittleEndian.Uint32(resp[0:4])
     if result>0 {
-        err = fmt.Errorf("Got ADS error number %i",result)
+        err = errors.New("Got ADS error number "+strconv.FormatUint(uint64(result),10)+" in Write")
         return
     }
 
@@ -163,7 +164,7 @@ func (conn *Connection) ReadState() (response ADSReadState, err error) {/*{{{*/
     // Check the result error code
     result := binary.LittleEndian.Uint32(resp[0:4])
     if result>0 {
-        err = fmt.Errorf("Got ADS error number %i",result)
+        err = errors.New("Got ADS error number "+strconv.FormatUint(uint64(result),10)+" in ReadState")
         return
     }
 
@@ -249,7 +250,7 @@ func (conn *Connection) DeleteDeviceNotification(handle uint32) {/*{{{*/
     // Check the result error code
     result := binary.LittleEndian.Uint32(resp[0:4])
     if result>0 {
-        err = fmt.Errorf("Got ADS error number %i",result)
+        err = errors.New("Got ADS error number "+strconv.FormatUint(uint64(result),10)+" in DeleteDeviceNotification")
         return
     }
 

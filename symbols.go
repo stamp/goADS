@@ -428,7 +428,7 @@ func (data *ADSSymbolUploadDataType) DebugWalk() { /*{{{*/
 func (data *ADSSymbol) Walk() { /*{{{*/
 	if len(data.Childs) == 0 {
 		if !data.Valid {
-			log.Warn("TYPE (", data.Area, ":", data.Offset, "): ", data.FullName, " [", data.DataType, "|",data.Length,"] = INVALID")
+			log.Warn("TYPE (", data.Area, ":", data.Offset, "): ", data.FullName, " [", data.DataType, "|",data.Length,"] = INVALID:",data.Value)
 		} else {
 			log.Info("TYPE (", data.Area, ":", data.Offset, "): ", data.FullName, " [", data.DataType, "|",data.Length,"] = ", data.Value)
 		}
@@ -497,7 +497,7 @@ func (symbol *ADSSymbol) AddDeviceNotification(callback func(*ADSSymbol)) { /*{{
 	s := symbol
 	c := callback
 
-	symbol.conn.AddDeviceNotification(symbol.Area,symbol.Offset,symbol.Length,ADS_ServerOnChange,2000,100,func(data []byte) {
+	symbol.conn.AddDeviceNotification(symbol.Area,symbol.Offset,symbol.Length,ADS_ServerOnChange,1000,1000,func(data []byte) {
 		s.notification(data)
 		c(s)
 	});
@@ -511,7 +511,7 @@ func (symbol *ADSSymbol) Read() { /*{{{*/
 	res, _ := symbol.conn.Read(symbol.Area, symbol.Offset, symbol.Length)
 
 	for i, _ := range symbol.Childs {
-		segment := symbol.Childs[i]
+		segment := symbol.Childs[i].Self
 		segment.parse(symbol.Offset, res.Data)
 	}
 }

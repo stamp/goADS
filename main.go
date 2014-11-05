@@ -90,7 +90,7 @@ func (conn *Connection) Close() { /*{{{*/
 		WaitGroupFinal.Wait()
 	}
 
-	logger.Critical("Shutdown")
+	logger.Critical("Close DONE")
 } /*}}}*/
 func (conn *Connection) Wait() {/*{{{*/
 	logger.Critical("Waiting for everything to close")
@@ -174,6 +174,7 @@ func (conn *Connection) sendRequest(command uint16, data []byte) (response []byt
 	}
 
 	WaitGroup.Add(1)
+	defer WaitGroup.Done()
 
 	// First, request a new invoke id
 	id := getNewInvokeId()
@@ -187,13 +188,10 @@ func (conn *Connection) sendRequest(command uint16, data []byte) (response []byt
 
 	select {
 	case response = <-activeRequests[id]:
-		WaitGroup.Done()
 		return
 	case <-time.After(time.Second * 4):
-		WaitGroup.Done()
 		return response, errors.New("Timeout, got no answer in 4sec")
 	case <-shutdown:
-		WaitGroup.Done()
 		return response, errors.New("Request aborted, shutdown initiated")
 	}
 
@@ -201,6 +199,7 @@ func (conn *Connection) sendRequest(command uint16, data []byte) (response []byt
 }                                                                                          /*}}}*/
 func (conn *Connection) createNotificationWorker(data []byte,callback func([]byte)) (handle uint32, err error) { /*{{{*/
 	WaitGroup.Add(1)
+	defer WaitGroup.Done()
 
 	// First, request a new invoke id
 	id := getNewInvokeId()
@@ -218,12 +217,13 @@ func (conn *Connection) createNotificationWorker(data []byte,callback func([]byt
 		handle = binary.LittleEndian.Uint32(response[4:8])
 		if result > 0 {
 			err = errors.New("Got ADS error number: "+strconv.FormatUint(uint64(result),10)+ " when creating a notification handle")
-			WaitGroup.Done()
 			return
 		}
 
 		go func() {
 			WaitGroup.Add(1)
+			defer WaitGroup.Done()
+
 			logger.Debug("Started notification reciver for ", handle)
 			activeNotifications[handle] = make(chan []byte,100)
 
@@ -241,17 +241,13 @@ func (conn *Connection) createNotificationWorker(data []byte,callback func([]byt
 			conn.DeleteDeviceNotification(handle)
 			close(activeNotifications[handle])
 			logger.Debug("Closed notification reciver for ", handle)
-			WaitGroup.Done()
 		}()
 
-		WaitGroup.Done()
 		return
 	case <-time.After(time.Second * 4):
-		WaitGroup.Done()
 		return handle, errors.New("Timeout, got no answer in 4sec")
 	case <-shutdown:
 		logger.Debug("Aborted createNotificationWorker")
-		WaitGroup.Done()
 		return handle, errors.New("Request aborted, shutdown initiated")
 	}
 
@@ -277,7 +273,7 @@ func listen(conn *Connection) <-chan []byte { /*{{{*/
 			if err != nil {
 				logger.Errorf("Failed to read socket: %s", err)
 				c <- nil
-				break
+				return
 			}
 		}
 	}(conn)
@@ -307,6 +303,7 @@ func getNewInvokeId() uint32 { /*{{{*/
 // Workers
 func reciveWorker(conn *Connection) { /*{{{*/
 	WaitGroupFinal.Add(1)
+	defer WaitGroupFinal.Done()
 
 	// Create a buffer so we can join halfdone messages
 	var buff bytes.Buffer
@@ -328,7 +325,7 @@ loop:
 			buff.Write(data)
 
 			// Decode the AMS header
-			for buff.Len() > 38 {
+			for buff.Len() >= 38 {
 				logger.Tracef("Buffer len: %d bytes", buff.Len())
 
 				// Read the header
@@ -363,7 +360,7 @@ loop:
 						// Try to send the response to the waiting request function
 						select {
 						case activeRequests[invoke] <- pack:
-							logger.Debugf("Successfully deliverd answer to invoke %d - command %d", invoke,command)
+							logger.Tracef("Successfully deliverd answer to invoke %d - command %d", invoke,command)
 						default:
 						}
 					} else {
@@ -378,10 +375,10 @@ loop:
 		}
 	}
 
-	WaitGroupFinal.Done()
 }                                             /*}}}*/
 func transmitWorker(conn *Connection) { /*{{{*/
 	WaitGroupFinal.Add(1)
+	defer WaitGroupFinal.Done()
 
 loop:
 	for {
@@ -395,5 +392,4 @@ loop:
 		}
 	}
 
-	WaitGroupFinal.Done()
 } /*}}}*/

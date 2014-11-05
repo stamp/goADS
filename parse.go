@@ -110,7 +110,7 @@ func (conn *Connection) ParseTPY (path string) (symbols map[string]ADSSymbol) {
 		dt.DataType = val.Type
 		//dt.Comment
 		//dt.Size
-		dt.Offset = val.BitSize;
+		dt.Offset = val.BitSize/8;
 
 		if len(dt.DataType) > 6 {
 			if dt.DataType[:6] == "STRING" {
@@ -134,8 +134,8 @@ func (conn *Connection) ParseTPY (path string) (symbols map[string]ADSSymbol) {
 				child := ADSSymbolUploadDataType{}
 				child.Name = val2.Name
 				child.DataType = val2.Type
-				child.Size = uint32(val2.nBitSize)
-				child.Offset = uint32(val2.nBitOffs)
+				child.Size = uint32(val2.nBitSize/8)
+				child.Offset = uint32(val2.nBitOffs/8)
 
 				dt.Childs[child.Name] = child
 			}
@@ -192,7 +192,7 @@ func (conn *Connection) ParseTPY (path string) (symbols map[string]ADSSymbol) {
 		//item.Comment = ""
 		item.Area = val.IGroup
 		item.Offset = val.IOffset
-		item.Length = val.BitSize
+		item.Length = val.BitSize/8
 		//item.Extra1 = ""
 		//item.Extra2 = ""
 

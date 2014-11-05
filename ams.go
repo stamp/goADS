@@ -58,7 +58,7 @@ func (conn *Connection) encode(command uint16,pack []byte,invoke uint32) (header
 }
 
 func (conn *Connection) decode(in []byte) (command uint16,length uint32,invoke uint32,err error) {
-    logger.Trace("Starting decoding of AMS header\n\r",hex.Dump(in))
+    logger.Trace("Starting decoding of AMS header\n\r",hex.Dump(in[6:]))
 
     if len(in) < 38 {
         err = fmt.Errorf("Not a full AMS header (to small, %d < 38byte)",len(in));
@@ -73,7 +73,7 @@ func (conn *Connection) decode(in []byte) (command uint16,length uint32,invoke u
     logger.Tracef("cmd: %d len: %d error: %d invoke: %d",command,length,error,invoke )
 
     if error > 0 {
-        err = fmt.Errorf("Got ADS error code: ",error ," in AMS decode")
+        err = fmt.Errorf("Got ADS error code: %s in AMS decode",error)
         logger.Error(err)
         return
     }

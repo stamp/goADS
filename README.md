@@ -17,4 +17,4 @@ Now you should be able to install goADS by running
 Contribute
 ==========
 
-Please feel free to fork and help to develop this package!
+Please feel free to fork and help to develop this package

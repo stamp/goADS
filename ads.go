@@ -217,6 +217,7 @@ func (conn *Connection) AddDeviceNotification(group uint32,offset uint32,length 
     // Try to send the request
     handle,err := conn.createNotificationWorker(request.Bytes(),callback)
     if err!=nil {
+		logger.Debug("Added notification handler, FAILED: ",err)
         return
     }
 
@@ -292,12 +293,12 @@ func (conn *Connection) DeviceNotification(in []byte) {
 			content = make([]byte,sample.Size)
 			data.Read(content);
 
-			_, test := activeNotifications[sample.Handle]
+			_, test := conn.activeNotifications[sample.Handle]
 
 			if test {
 				// Try to send the response to the waiting request function
 				select {
-					case activeNotifications[sample.Handle] <- content:
+					case conn.activeNotifications[sample.Handle] <- content:
 						logger.Debugf("Successfully delived notification for handle %d",sample.Handle);
 					default:
 						logger.Errorf("Failed to deliver notification for handle %d, deleting device notification",sample.Handle);

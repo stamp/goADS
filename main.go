@@ -15,6 +15,10 @@ import (
 )
 
 type Connection struct {
+	ip string
+	netid string
+	port int
+
 	connection  net.Conn
 	target      AMSAddress
 	source      AMSAddress
@@ -22,6 +26,19 @@ type Connection struct {
 
 	symbols   map[string]ADSSymbol
 	datatypes map[string]ADSSymbolUploadDataType
+
+	shutdown  chan bool
+	shutdownFinal chan bool
+	WaitGroup sync.WaitGroup
+	WaitGroupFinal sync.WaitGroup
+
+	// List of active requests that waits a response, invokeid is key and value is a channel to the request rutine
+	activeRequests  map[uint32]chan []byte
+	activeNotifications map[uint32]chan []byte
+	invokeID uint32 
+	invokeIDmutex *sync.Mutex
+
+	// Shutdown tools
 }
 
 type AMSAddress struct {
@@ -29,33 +46,41 @@ type AMSAddress struct {
 	port  uint16
 }
 
-// List of active requests that waits a response, invokeid is key and value is a channel to the request rutine
-var activeRequests = map[uint32]chan []byte{}
-var activeNotifications = map[uint32]chan []byte{}
-var invokeID uint32 = 0
-var invokeIDmutex = &sync.Mutex{}
 
-// Shutdown tools
-var shutdown = make(chan bool)
-var shutdownFinal = make(chan bool)
-var WaitGroup sync.WaitGroup
-var WaitGroupFinal sync.WaitGroup
 
 var buf [1024000]byte
 
 // Connection
-func Dial(ip string, netid string, port int) (conn Connection, err error) { /*{{{*/
+func NewConnection(ip string, netid string, port int) (conn *Connection, err error) { /*{{{*/
 	defer logger.Flush()
 
-	logger.Infof("Dailing ip: %s NetID: %s", ip, netid)
-	conn.connection, err = net.Dial("tcp", fmt.Sprintf("%s:48898", ip))
+	conn = &Connection{ip: ip, netid: netid, port: port}
+
+	conn.shutdown = make(chan bool)
+	conn.shutdownFinal = make(chan bool)
+
+	conn.activeRequests = map[uint32]chan []byte{}
+	conn.activeNotifications = map[uint32]chan []byte{}
+	conn.invokeID = 0
+	conn.invokeIDmutex = &sync.Mutex{}
+
+	conn.sendChannel = make(chan []byte)
+
+	return
+}
+
+func (conn *Connection) Connect() {
+	var err error
+
+	logger.Infof("Dailing ip: %s NetID: %s", conn.ip, conn.netid)
+	conn.connection, err = net.Dial("tcp", fmt.Sprintf("%s:48898", conn.ip))
 	//conn.connection, err = net.Dial("tcp", fmt.Sprintf("%s:6666",ip))
 	if err != nil {
 		return
 	}
 	logger.Trace("Connected")
 
-	conn.target = stringToNetId(netid)
+	conn.target = stringToNetId(conn.netid)
 	conn.target.port = 801
 
 	localhost, _, _ := net.SplitHostPort(conn.connection.LocalAddr().String())
@@ -63,31 +88,30 @@ func Dial(ip string, netid string, port int) (conn Connection, err error) { /*{{
 	conn.source.netid[4] = 1
 	conn.source.netid[5] = 1
 	conn.source.port = 800
-
-	conn.sendChannel = make(chan []byte)
-
-	go reciveWorker(&conn)
-	go transmitWorker(&conn)
+	go reciveWorker(conn)
+	go transmitWorker(conn)
 
 	return
 } /*}}}*/
 func (conn *Connection) Close() { /*{{{*/
 	logger.Trace("CLOSE is called")
 
-	if shutdown != nil {
+	if conn.shutdown != nil {
 		logger.Debug("Sending shutdown to workers")
-		close(shutdown)
-		shutdown = nil
+		close(conn.shutdown)
+		conn.shutdown = nil
 
 		logger.Debug("Waiting for workers to close")
-		WaitGroup.Wait()
+		conn.WaitGroup.Wait()
+	}
 
+	if conn.shutdownFinal != nil {
 		logger.Debug("Sending shutdown to connection")
-		close(shutdownFinal)
-		shutdownFinal = nil
+		close(conn.shutdownFinal)
+		conn.shutdownFinal = nil
 
 		logger.Debug("Waiting for connection to close")
-		WaitGroupFinal.Wait()
+		conn.WaitGroupFinal.Wait()
 	}
 
 	logger.Critical("Close DONE")
@@ -95,8 +119,8 @@ func (conn *Connection) Close() { /*{{{*/
 func (conn *Connection) Wait() {/*{{{*/
 	logger.Critical("Waiting for everything to close")
 
-	WaitGroup.Wait()
-	WaitGroupFinal.Wait()
+	conn.WaitGroup.Wait()
+	conn.WaitGroupFinal.Wait()
 
 	logger.Critical("All is closed")
 }/*}}}*/
@@ -173,46 +197,63 @@ func (conn *Connection) sendRequest(command uint16, data []byte) (response []byt
 		return
 	}
 
-	WaitGroup.Add(1)
-	defer WaitGroup.Done()
+	conn.WaitGroup.Add(1)
+	defer conn.WaitGroup.Done()
 
 	// First, request a new invoke id
-	id := getNewInvokeId()
+	id := conn.getNewInvokeId()
 
 	// Create a channel for the response
-	activeRequests[id] = make(chan []byte)
+	conn.activeRequests[id] = make(chan []byte)
 
 	pack := conn.encode(command, data, id)
 
-	conn.sendChannel <- pack
+	select { 
+	case conn.sendChannel <- pack:
+		// Sent successfully
+	case <-time.After(time.Second * 4):
+		 return response, errors.New("Timeout, failed to send message")
+	case <-conn.shutdownFinal:
+		logger.Info("sendRequest aborted due to shutdown");
+		return response, errors.New("Request aborted, shutdown initiated")
+	}
 
 	select {
-	case response = <-activeRequests[id]:
+	case response = <-conn.activeRequests[id]:
 		return
 	case <-time.After(time.Second * 4):
 		return response, errors.New("Timeout, got no answer in 4sec")
-	case <-shutdown:
+	case <-conn.shutdownFinal:
+		logger.Info("sendRequest aborted due to shutdown");
 		return response, errors.New("Request aborted, shutdown initiated")
 	}
 
 	return
 }                                                                                          /*}}}*/
 func (conn *Connection) createNotificationWorker(data []byte,callback func([]byte)) (handle uint32, err error) { /*{{{*/
-	WaitGroup.Add(1)
-	defer WaitGroup.Done()
+	conn.WaitGroup.Add(1)
+	defer conn.WaitGroup.Done()
 
 	// First, request a new invoke id
-	id := getNewInvokeId()
+	id := conn.getNewInvokeId()
 
 	// Create a channel for the response
-	activeRequests[id] = make(chan []byte)
+	conn.activeRequests[id] = make(chan []byte)
 
 	pack := conn.encode(uint16(6), data, id)
 
-	conn.sendChannel <- pack
+	select { 
+	case conn.sendChannel <- pack:
+		// Sent successfully
+	case <-time.After(time.Second * 4):
+		 return 0, errors.New("Timeout, failed to send message")
+	case <-conn.shutdown:
+		logger.Info("createNotificationWorker aborted due to shutdown");
+		return 0, errors.New("Request aborted, shutdown initiated")
+	}
 
 	select {
-	case response := <-activeRequests[id]:
+	case response := <-conn.activeRequests[id]:
 		result := binary.LittleEndian.Uint32(response[0:4])
 		handle = binary.LittleEndian.Uint32(response[4:8])
 		if result > 0 {
@@ -221,32 +262,34 @@ func (conn *Connection) createNotificationWorker(data []byte,callback func([]byt
 		}
 
 		go func() {
-			WaitGroup.Add(1)
-			defer WaitGroup.Done()
+			conn.WaitGroup.Add(1)
+			defer conn.WaitGroup.Done()
 
 			logger.Debug("Started notification reciver for ", handle)
-			activeNotifications[handle] = make(chan []byte,100)
+			conn.activeNotifications[handle] = make(chan []byte,100);
 
 		Label:
 			for {
 				select {
-				case response = <-activeNotifications[handle]:
+				case response = <-conn.activeNotifications[handle]:
 					//logger.Warn(hex.Dump(response))
-					callback(response)
-				case <-shutdown:
+					go callback(response)
+				case <-conn.shutdown:
+					logger.Info("createNotificationWorker (2) aborted due to shutdown");
 					break Label
 				}
 			}
 
+			logger.Info("Trying to remove notifications again for ",handle);
 			conn.DeleteDeviceNotification(handle)
-			close(activeNotifications[handle])
+			close(conn.activeNotifications[handle])
 			logger.Debug("Closed notification reciver for ", handle)
 		}()
 
 		return
 	case <-time.After(time.Second * 4):
 		return handle, errors.New("Timeout, got no answer in 4sec")
-	case <-shutdown:
+	case <-conn.shutdown:
 		logger.Debug("Aborted createNotificationWorker")
 		return handle, errors.New("Request aborted, shutdown initiated")
 	}
@@ -291,19 +334,19 @@ func stringToNetId(source string) (result AMSAddress) { /*{{{*/
 	}
 	return
 } /*}}}*/
-func getNewInvokeId() uint32 { /*{{{*/
-	invokeIDmutex.Lock()
-	invokeID++
-	id := invokeID
-	invokeIDmutex.Unlock()
+func (conn *Connection) getNewInvokeId() uint32 { /*{{{*/
+	conn.invokeIDmutex.Lock()
+	conn.invokeID++
+	id := conn.invokeID
+	conn.invokeIDmutex.Unlock()
 
 	return id
 } /*}}}*/
 
 // Workers
 func reciveWorker(conn *Connection) { /*{{{*/
-	WaitGroupFinal.Add(1)
-	defer WaitGroupFinal.Done()
+	conn.WaitGroupFinal.Add(1)
+	defer conn.WaitGroupFinal.Done()
 
 	// Create a buffer so we can join halfdone messages
 	var buff bytes.Buffer
@@ -354,12 +397,12 @@ loop:
 					conn.DeviceNotification(pack)
 				default:
 					// Check if the response channel exists and is open
-					_, test := activeRequests[invoke]
+					_, test := conn.activeRequests[invoke]
 
 					if test {
 						// Try to send the response to the waiting request function
 						select {
-						case activeRequests[invoke] <- pack:
+						case conn.activeRequests[invoke] <- pack:
 							logger.Tracef("Successfully deliverd answer to invoke %d - command %d", invoke,command)
 						default:
 						}
@@ -369,7 +412,7 @@ loop:
 					}
 				}
 			}
-		case <-shutdownFinal:
+		case <-conn.shutdownFinal:
 			logger.Debug("Exit reciveWorker")
 			break loop
 		}
@@ -377,17 +420,17 @@ loop:
 
 }                                             /*}}}*/
 func transmitWorker(conn *Connection) { /*{{{*/
-	WaitGroupFinal.Add(1)
-	defer WaitGroupFinal.Done()
+	conn.WaitGroupFinal.Add(1)
+	defer conn.WaitGroupFinal.Done()
 
 loop:
 	for {
 		select {
 		case data := <-conn.sendChannel:
 			logger.Tracef("Sending %d bytes", len(data))
-			conn.connection.Write(data)
-		case <-shutdownFinal:
-			logger.Debug("Exit reciveWorker")
+			go conn.connection.Write(data)
+		case <-conn.shutdownFinal:
+			logger.Debug("Exit transmitWorker")
 			break loop
 		}
 	}

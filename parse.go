@@ -40,10 +40,10 @@ type dataType struct {
 	BitSize uint32
 	SubItem []dataTypeSubItem
 	ArrayInfo struct {
-		LBound string
-		Elements string
-		nLBound int
-		nElements int
+		//LBound string
+		//Elements string
+		LBound uint32
+		Elements uint32
 	}
 }
 
@@ -118,8 +118,24 @@ func (conn *Connection) ParseTPY (path string) (symbols map[string]ADSSymbol) {
 			}
 		}
 
-		if val.ArrayInfo.LBound != "" || val.ArrayInfo.Elements != "" {
-			
+		if val.ArrayInfo.LBound != 0 || val.ArrayInfo.Elements != 0 {
+			if dt.Childs == nil {
+				dt.Childs = map[string]ADSSymbolUploadDataType{}
+			}
+			log.Info("Found array: start: ",val.ArrayInfo.LBound, ", num:", val.ArrayInfo.Elements);
+
+			size := uint32(val.BitSize/8/val.ArrayInfo.Elements)
+			for i := 0; i < int(val.ArrayInfo.Elements); i++ {
+				child := ADSSymbolUploadDataType{}
+				child.Name = "["+strconv.Itoa(i+int(val.ArrayInfo.LBound))+"]";
+				child.DataType = val.Type
+				child.Size = size
+				child.Offset = size*uint32(i)
+
+				dt.Childs[child.Name] = child
+
+				log.Warn(dt.Childs)
+			}
 		}
 
 		if val.SubItem != nil {

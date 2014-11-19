@@ -407,7 +407,7 @@ loop:
 						default:
 						}
 					} else {
-						logger.Debug("Got broadcast")
+						logger.Debug("Got broadcast, invoke: ", invoke)
 						logger.Debug(hex.Dump(pack))
 					}
 				}

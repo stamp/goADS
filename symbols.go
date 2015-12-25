@@ -80,8 +80,13 @@ type ADSSymbolUploadInfo struct { /*{{{*/
 } /*}}}*/
 
 func (conn *Connection) UploadSymbolInfo() (symbols map[string]ADSSymbol, structs map[string]ADSSymbolUploadDataType) {
+	log.Debug("Start UploadSymbolInfo")
 
-	res, _ := conn.Read(61455, 0, 48) //UploadSymbolInfo;
+	res, e := conn.Read(61455, 0, 24) //UploadSymbolInfo;
+	if e != nil {
+		log.Critical(e)
+		return
+	}
 
 	// Parse the result and read symbol summarys
 	var result ADSSymbolUploadInfo
@@ -506,7 +511,7 @@ func (symbol *ADSSymbol) AddDeviceNotification(callback func(*ADSSymbol)) { /*{{
 
 // Read a symbol and all sub values
 func (symbol *ADSSymbol) Read() { /*{{{*/
-	log.Warn("Read (", symbol.Area, ":", symbol.Offset, "): ", symbol.Name)
+	log.Debug("Read (", symbol.Area, ":", symbol.Offset, "): ", symbol.FullName)
 
 	res, _ := symbol.conn.Read(symbol.Area, symbol.Offset, symbol.Length)
 
@@ -517,7 +522,7 @@ func (symbol *ADSSymbol) Read() { /*{{{*/
 }
 /*}}}*/
 func (symbol *ADSSymbol) Write(value string) (error) { /*{{{*/
-	log.Warn("Write (", symbol.Area, ":", symbol.Offset, "): ", symbol.Name)
+	log.Debug("Write (", symbol.Area, ":", symbol.Offset, "): ", symbol.FullName)
 
 	if len(symbol.Childs) != 0 {
 		e := fmt.Errorf("Cannot write to a whole struct at once!")
@@ -543,7 +548,7 @@ func (symbol *ADSSymbol) Write(value string) (error) { /*{{{*/
 
 			v8 := uint8(v)
 			binary.Write(buf,binary.LittleEndian, &v8 )
-		case "UINT","WORD":
+		case "UINT16","UINT","WORD":
 			v,e := strconv.ParseUint(value,10,16)
 			if e!=nil { return e }
 

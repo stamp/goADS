@@ -94,7 +94,7 @@ func (conn *Connection) Connect() {
 	return
 } /*}}}*/
 func (conn *Connection) Close() { /*{{{*/
-	logger.Trace("CLOSE is called")
+	logger.Critical("CLOSE is called")
 
 	if conn.shutdown != nil {
 		logger.Debug("Sending shutdown to workers")
@@ -117,12 +117,12 @@ func (conn *Connection) Close() { /*{{{*/
 	logger.Critical("Close DONE")
 } /*}}}*/
 func (conn *Connection) Wait() {/*{{{*/
-	logger.Critical("Waiting for everything to close")
+	logger.Debug("Waiting for everything to close")
 
 	conn.WaitGroup.Wait()
 	conn.WaitGroupFinal.Wait()
 
-	logger.Critical("All is closed")
+	logger.Info("All routines are closed")
 }/*}}}*/
 func (conn *Connection) Find(name string) (list []*ADSSymbol) {/*{{{*/
 	logger.Debug("Find: ",name)
@@ -211,7 +211,7 @@ func (conn *Connection) sendRequest(command uint16, data []byte) (response []byt
 	select { 
 	case conn.sendChannel <- pack:
 		// Sent successfully
-	case <-time.After(time.Second * 4):
+	case <-time.After(time.Second * 8):
 		 return response, errors.New("Timeout, failed to send message")
 	case <-conn.shutdownFinal:
 		logger.Info("sendRequest aborted due to shutdown");
@@ -221,7 +221,7 @@ func (conn *Connection) sendRequest(command uint16, data []byte) (response []byt
 	select {
 	case response = <-conn.activeRequests[id]:
 		return
-	case <-time.After(time.Second * 4):
+	case <-time.After(time.Second * 8):
 		return response, errors.New("Timeout, got no answer in 4sec")
 	case <-conn.shutdownFinal:
 		logger.Info("sendRequest aborted due to shutdown");
@@ -245,7 +245,7 @@ func (conn *Connection) createNotificationWorker(data []byte,callback func([]byt
 	select { 
 	case conn.sendChannel <- pack:
 		// Sent successfully
-	case <-time.After(time.Second * 4):
+	case <-time.After(time.Second * 8):
 		 return 0, errors.New("Timeout, failed to send message")
 	case <-conn.shutdown:
 		logger.Info("createNotificationWorker aborted due to shutdown");
@@ -287,7 +287,7 @@ func (conn *Connection) createNotificationWorker(data []byte,callback func([]byt
 		}()
 
 		return
-	case <-time.After(time.Second * 4):
+	case <-time.After(time.Second * 8):
 		return handle, errors.New("Timeout, got no answer in 4sec")
 	case <-conn.shutdown:
 		logger.Debug("Aborted createNotificationWorker")

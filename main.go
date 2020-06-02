@@ -56,8 +56,7 @@ func NewConnection(ip string, netid string, port int) (conn *Connection, err err
 
 	conn = &Connection{ip: ip, netid: netid, port: port}
 
-	conn.shutdown = make(chan bool)
-	conn.shutdownFinal = make(chan bool)
+
 
 	conn.activeRequests = map[uint32]chan []byte{}
 	conn.activeNotifications = map[uint32]chan []byte{}
@@ -79,7 +78,9 @@ func (conn *Connection) Connect() {
 		return
 	}
 	logger.Trace("Connected")
-
+	conn.shutdown = make(chan bool)
+	conn.shutdownFinal = make(chan bool)
+	
 	conn.target = stringToNetId(conn.netid)
 	conn.target.port = 801
 

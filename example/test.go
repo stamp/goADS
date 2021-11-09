@@ -28,10 +28,11 @@ func main() {
 	debug := flag.Bool("debug", false, "print debugging messages.")
 	ip := flag.String("ip", "172.16.21.10", "the address to the AMS router")
 	netid := flag.String("netid", "172.16.21.10.1.1", "AMS NetID of the target")
-	port := flag.Int("port", 801, "AMS Port of the target")
+	intport := flag.Uint("port", 801, "AMS Port of the target")
 
 	flag.Parse()
-	fmt.Println(*debug, *ip, *netid, *port) /*}}}*/
+	port := uint16(*intport)
+	fmt.Println(*debug, *ip, *netid, port) /*}}}*/
 
 	// Start the logger/*{{{*/
 	logger, err := log.LoggerFromConfigAsFile("logconfig.xml")
@@ -41,7 +42,7 @@ func main() {
 	log.ReplaceLogger(logger)
 	goADS.UseLogger(logger) /*}}}*/
 	// Startup the connection/*{{{*/
-	connection, e := goADS.NewConnection(*ip, *netid, *port)
+	connection, e := goADS.NewConnection(*ip, *netid, port)
 	connection.Connect()
 	defer connection.Close() // Close the connection when we are done
 	if e != nil {

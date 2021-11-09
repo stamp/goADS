@@ -15,9 +15,9 @@ import (
 )
 
 type Connection struct {
-	ip string
+	ip    string
 	netid string
-	port int
+	port  uint16
 
 	connection  net.Conn
 	target      AMSAddress
@@ -27,16 +27,16 @@ type Connection struct {
 	symbols   map[string]ADSSymbol
 	datatypes map[string]ADSSymbolUploadDataType
 
-	shutdown  chan bool
-	shutdownFinal chan bool
-	WaitGroup sync.WaitGroup
+	shutdown       chan bool
+	shutdownFinal  chan bool
+	WaitGroup      sync.WaitGroup
 	WaitGroupFinal sync.WaitGroup
 
 	// List of active requests that waits a response, invokeid is key and value is a channel to the request rutine
-	activeRequests  map[uint32]chan []byte
+	activeRequests      map[uint32]chan []byte
 	activeNotifications map[uint32]chan []byte
-	invokeID uint32 
-	invokeIDmutex *sync.Mutex
+	invokeID            uint32
+	invokeIDmutex       *sync.Mutex
 
 	// Shutdown tools
 }
@@ -46,17 +46,13 @@ type AMSAddress struct {
 	port  uint16
 }
 
-
-
 var buf [1024000]byte
 
 // Connection
-func NewConnection(ip string, netid string, port int) (conn *Connection, err error) { /*{{{*/
+func NewConnection(ip string, netid string, port uint16) (conn *Connection, err error) { /*{{{*/
 	defer logger.Flush()
 
 	conn = &Connection{ip: ip, netid: netid, port: port}
-
-
 
 	conn.activeRequests = map[uint32]chan []byte{}
 	conn.activeNotifications = map[uint32]chan []byte{}
@@ -80,7 +76,7 @@ func (conn *Connection) Connect() {
 	logger.Trace("Connected")
 	conn.shutdown = make(chan bool)
 	conn.shutdownFinal = make(chan bool)
-	
+
 	conn.target = stringToNetId(conn.netid)
 	conn.target.port = 801
 
@@ -117,68 +113,68 @@ func (conn *Connection) Close() { /*{{{*/
 
 	logger.Critical("Close DONE")
 } /*}}}*/
-func (conn *Connection) Wait() {/*{{{*/
+func (conn *Connection) Wait() { /*{{{*/
 	logger.Debug("Waiting for everything to close")
 
 	conn.WaitGroup.Wait()
 	conn.WaitGroupFinal.Wait()
 
 	logger.Info("All routines are closed")
-}/*}}}*/
-func (conn *Connection) Find(name string) (list []*ADSSymbol) {/*{{{*/
-	logger.Debug("Find: ",name)
+} /*}}}*/
+func (conn *Connection) Find(name string) (list []*ADSSymbol) { /*{{{*/
+	logger.Debug("Find: ", name)
 
-	if conn==nil {
+	if conn == nil {
 		logger.Error("Failed FIND, connection is nil pointer")
 		return
 	}
 
-	for i,_ := range conn.symbols {
+	for i, _ := range conn.symbols {
 		symbol := conn.symbols[i]
 
-        if len(name)>=len(symbol.FullName)&&name[:len(symbol.FullName)]==symbol.FullName {
+		if len(name) >= len(symbol.FullName) && name[:len(symbol.FullName)] == symbol.FullName {
 			found := symbol.Self.Find(name)
-			for i,_ := range found {
+			for i, _ := range found {
 				item := found[i]
-				list = append(list,item)
+				list = append(list, item)
 			}
 		}
 	}
 
-	logger.Debug("Found ",len(list)," tags")
+	logger.Debug("Found ", len(list), " tags")
 	return
-}/*}}}*/
-func (conn *Connection) Value(name string) (value string) {/*{{{*/
-	logger.Debug("Value: ",name)
+} /*}}}*/
+func (conn *Connection) Value(name string) (value string) { /*{{{*/
+	logger.Debug("Value: ", name)
 
 	list := conn.Find(name)
-	for i,_ := range list {
+	for i, _ := range list {
 		symbol := list[i]
-        if len(symbol.FullName)>=len(name)&&symbol.FullName==name {
-			logger.Debug("Found value ",symbol.Value)
+		if len(symbol.FullName) >= len(name) && symbol.FullName == name {
+			logger.Debug("Found value ", symbol.Value)
 			return symbol.Value
-			break;
+			break
 		} else {
-			logger.Debug("Not ",symbol.FullName)
+			logger.Debug("Not ", symbol.FullName)
 		}
 	}
 
 	return
-}/*}}}*/
-func (conn *Connection) Set(name, value string) {/*{{{*/
-	logger.Debug("Set: ",name,"=",value)
+} /*}}}*/
+func (conn *Connection) Set(name, value string) { /*{{{*/
+	logger.Debug("Set: ", name, "=", value)
 
-	if conn==nil {
+	if conn == nil {
 		logger.Error("Failed SET, connection is nil pointer")
 		return
 	}
 
 	list := conn.Find(name)
-	for i,_ := range list {
+	for i, _ := range list {
 		symbol := list[i]
 
-        if len(symbol.FullName)>=len(name)&&symbol.FullName==name {
-			if symbol.Self.conn==nil {
+		if len(symbol.FullName) >= len(name) && symbol.FullName == name {
+			if symbol.Self.conn == nil {
 				logger.Error("Failed SET, connection is nil pointer")
 				return
 			}
@@ -188,13 +184,11 @@ func (conn *Connection) Set(name, value string) {/*{{{*/
 		}
 	}
 
-}/*}}}*/
-
-
+} /*}}}*/
 
 func (conn *Connection) sendRequest(command uint16, data []byte) (response []byte, err error) { /*{{{*/
-	if conn==nil {
-		logger.Error("Failed to encode header, connection is nil pointer");
+	if conn == nil {
+		logger.Error("Failed to encode header, connection is nil pointer")
 		return
 	}
 
@@ -209,13 +203,13 @@ func (conn *Connection) sendRequest(command uint16, data []byte) (response []byt
 
 	pack := conn.encode(command, data, id)
 
-	select { 
+	select {
 	case conn.sendChannel <- pack:
 		// Sent successfully
 	case <-time.After(time.Second * 8):
-		 return response, errors.New("Timeout, failed to send message")
+		return response, errors.New("Timeout, failed to send message")
 	case <-conn.shutdownFinal:
-		logger.Info("sendRequest aborted due to shutdown");
+		logger.Info("sendRequest aborted due to shutdown")
 		return response, errors.New("Request aborted, shutdown initiated")
 	}
 
@@ -225,13 +219,13 @@ func (conn *Connection) sendRequest(command uint16, data []byte) (response []byt
 	case <-time.After(time.Second * 8):
 		return response, errors.New("Timeout, got no answer in 4sec")
 	case <-conn.shutdownFinal:
-		logger.Info("sendRequest aborted due to shutdown");
+		logger.Info("sendRequest aborted due to shutdown")
 		return response, errors.New("Request aborted, shutdown initiated")
 	}
 
 	return
-}                                                                                          /*}}}*/
-func (conn *Connection) createNotificationWorker(data []byte,callback func([]byte)) (handle uint32, err error) { /*{{{*/
+} /*}}}*/
+func (conn *Connection) createNotificationWorker(data []byte, callback func([]byte)) (handle uint32, err error) { /*{{{*/
 	conn.WaitGroup.Add(1)
 	defer conn.WaitGroup.Done()
 
@@ -243,13 +237,13 @@ func (conn *Connection) createNotificationWorker(data []byte,callback func([]byt
 
 	pack := conn.encode(uint16(6), data, id)
 
-	select { 
+	select {
 	case conn.sendChannel <- pack:
 		// Sent successfully
 	case <-time.After(time.Second * 8):
-		 return 0, errors.New("Timeout, failed to send message")
+		return 0, errors.New("Timeout, failed to send message")
 	case <-conn.shutdown:
-		logger.Info("createNotificationWorker aborted due to shutdown");
+		logger.Info("createNotificationWorker aborted due to shutdown")
 		return 0, errors.New("Request aborted, shutdown initiated")
 	}
 
@@ -258,7 +252,7 @@ func (conn *Connection) createNotificationWorker(data []byte,callback func([]byt
 		result := binary.LittleEndian.Uint32(response[0:4])
 		handle = binary.LittleEndian.Uint32(response[4:8])
 		if result > 0 {
-			err = errors.New("Got ADS error number: "+strconv.FormatUint(uint64(result),10)+ " when creating a notification handle")
+			err = errors.New("Got ADS error number: " + strconv.FormatUint(uint64(result), 10) + " when creating a notification handle")
 			return
 		}
 
@@ -267,7 +261,7 @@ func (conn *Connection) createNotificationWorker(data []byte,callback func([]byt
 			defer conn.WaitGroup.Done()
 
 			logger.Debug("Started notification reciver for ", handle)
-			conn.activeNotifications[handle] = make(chan []byte,100);
+			conn.activeNotifications[handle] = make(chan []byte, 100)
 
 		Label:
 			for {
@@ -276,12 +270,12 @@ func (conn *Connection) createNotificationWorker(data []byte,callback func([]byt
 					//logger.Warn(hex.Dump(response))
 					go callback(response)
 				case <-conn.shutdown:
-					logger.Info("createNotificationWorker (2) aborted due to shutdown");
+					logger.Info("createNotificationWorker (2) aborted due to shutdown")
 					break Label
 				}
 			}
 
-			logger.Info("Trying to remove notifications again for ",handle);
+			logger.Info("Trying to remove notifications again for ", handle)
 			conn.DeleteDeviceNotification(handle)
 			close(conn.activeNotifications[handle])
 			logger.Debug("Closed notification reciver for ", handle)
@@ -311,7 +305,7 @@ func listen(conn *Connection) <-chan []byte { /*{{{*/
 				c <- res
 			}
 			if err == io.EOF {
-				//fmt.Println("client: Read EOF",n) 
+				//fmt.Println("client: Read EOF",n)
 				break
 			}
 			if err != nil {
@@ -404,7 +398,7 @@ loop:
 						// Try to send the response to the waiting request function
 						select {
 						case conn.activeRequests[invoke] <- pack:
-							logger.Tracef("Successfully deliverd answer to invoke %d - command %d", invoke,command)
+							logger.Tracef("Successfully deliverd answer to invoke %d - command %d", invoke, command)
 						default:
 						}
 					} else {
@@ -419,7 +413,7 @@ loop:
 		}
 	}
 
-}                                             /*}}}*/
+} /*}}}*/
 func transmitWorker(conn *Connection) { /*{{{*/
 	conn.WaitGroupFinal.Add(1)
 	defer conn.WaitGroupFinal.Done()

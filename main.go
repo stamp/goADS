@@ -78,7 +78,7 @@ func (conn *Connection) Connect() {
 	conn.shutdownFinal = make(chan bool)
 
 	conn.target = stringToNetId(conn.netid)
-	conn.target.port = 801
+	conn.target.port = conn.port
 
 	localhost, _, _ := net.SplitHostPort(conn.connection.LocalAddr().String())
 	conn.source = stringToNetId(localhost)
